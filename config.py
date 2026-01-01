@@ -6,7 +6,7 @@ from typing import Dict, Tuple
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_ROOT = BASE_DIR / "Public Test"
-OUTPUT_ROOT = BASE_DIR / "processed_videos"
+OUTPUT_ROOT = BASE_DIR / "results"
 MODELS_DIR = BASE_DIR / "models"
 POSE_MODEL_PATH = MODELS_DIR / "pose_landmarker_full.task"
 
@@ -29,6 +29,19 @@ BAND_FOLDER_MAP: Dict[str, str] = {
     "Band 8-10": "8_10",
 }
 
+# Band to integer class ID mapping for classification
+# Fix: Label encoding must use integers, not strings
+BAND_TO_ID: Dict[str, int] = {
+    "1_2": 0,
+    "2_4": 1,
+    "4_6": 2,
+    "6_8": 3,
+    "8_10": 4,
+}
+
+# Reverse mapping for decoding predictions
+ID_TO_BAND: Dict[int, str] = {v: k for k, v in BAND_TO_ID.items()}
+
 # Video / sequence parameters
 TARGET_FPS: int = 30
 N_FRAMES: int = 100
@@ -44,7 +57,10 @@ THRESHOLDS: Dict[str, float] = {
 }
 
 # Pose-specific constants
-POSE_FEATURE_DIM: int = 16  # x,y,z,vis + velocity + acceleration + angles + metrics
+# Fix: Global metrics are now separate from joint features
+POSE_JOINT_FEATURE_DIM: int = 13  # x,y,z,vis + vx,vy,vz + ax,ay,az + speed_mag + accel_mag + joint_angle
+POSE_GLOBAL_FEATURE_DIM: int = 3  # x_factor + hip_shoulder_sep + max_wrist_speed
+POSE_FEATURE_DIM: int = 16  # Legacy - kept for backward compatibility (unused after refactor)
 KEY_JOINTS = {
     "hips": (23, 24),
     "shoulders": (11, 12),

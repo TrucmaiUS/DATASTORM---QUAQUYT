@@ -47,45 +47,33 @@ def _read_video_stats(video_path: Path) -> Tuple[float, float, int, str]:
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     duration = frame_count / fps if fps > 0 else 0.0
     cap.release()
-    resolution = f"{width}x{height}"
-    return fps, duration, frame_count, resolution
+    return float(fps), float(duration), int(frame_count), f"{width}x{height}"
 
 
 def scan_dataset(data_root: Path | None = None) -> List[VideoMetadata]:
-    """Quét toàn bộ dataset và thu thập metadata cho mỗi video.
-    
-    Quy trình:
-    1. Duyệt đệ quy tất cả file trong data_root
-    2. Lọc các file video (theo VIDEO_EXTENSIONS)
-    3. Suy luận env và band từ cấu trúc thư mục
-    4. Đọc thông tin video (fps, duration, frame_count, resolution)
-    5. Trả về danh sách VideoMetadata
-    
-    Args:
-        data_root: Thư mục gốc chứa dataset (mặc định: config.DATA_ROOT)
-        
-    Returns:
-        List[VideoMetadata] - danh sách metadata của tất cả videos
-    """
     root = data_root or config.DATA_ROOT
     if not root.exists():
         raise FileNotFoundError(f"Dataset root not found: {root}")
 
     records: List[VideoMetadata] = []
-    # Duyệt đệ quy tất cả file
     for video_path in root.rglob("*"):
-        # Chỉ xử lý video files
         if not video_path.is_file() or video_path.suffix.lower() not in config.VIDEO_EXTENSIONS:
             continue
-        # Suy luận env và band từ đường dẫn
+
         rel_parts = video_path.relative_to(root).parts
         env, band = _infer_env_band(rel_parts)
-        # Đọc thông tin video
+
+        if env == "unknown" or band == "unknown":
+            raise RuntimeError(
+                f"Cannot infer env/band from path: {video_path} | "
+                f"env={env}, band={band}. "
+                "Please update ENVIRONMENT_FOLDER_MAP / BAND_FOLDER_MAP or dataset folders."
+            )
+
         fps, duration, frame_count, resolution = _read_video_stats(video_path)
-        video_id = video_path.stem
         records.append(
             VideoMetadata(
-                video_id=video_id,
+                video_id=video_path.stem,
                 env=env,
                 band=band,
                 file_path=video_path,
@@ -99,17 +87,21 @@ def scan_dataset(data_root: Path | None = None) -> List[VideoMetadata]:
 
 
 def build_metadata_csv(output_csv: Path | None = None) -> pd.DataFrame:
-    """Generate metadata.csv with standardized columns."""
     output_csv = output_csv or (config.BASE_DIR / "metadata.csv")
-    records = scan_dataset()
     rows: List[Dict[str, object]] = []
-    for item in records:
+    for item in scan_dataset():
+        file_path = item.file_path
+        try:
+            relative = file_path.relative_to(config.BASE_DIR)
+            file_path_str = str(relative)
+        except ValueError:
+            file_path_str = str(file_path)
         rows.append(
             {
                 "video_id": item.video_id,
                 "env": item.env,
                 "band": item.band,
-                "file_path": str(item.file_path.relative_to(config.BASE_DIR)),
+                "file_path": file_path_str,  # Keep relative when possible, otherwise store absolute path
                 "fps": round(item.fps, 3),
                 "duration": round(item.duration, 3),
                 "frame_count": item.frame_count,
@@ -118,7 +110,10 @@ def build_metadata_csv(output_csv: Path | None = None) -> pd.DataFrame:
                 "swing_end_frame": item.swing_end_frame,
             }
         )
+
     df = pd.DataFrame(rows)
-    df.sort_values(["env", "band", "video_id"], inplace=True)
+    if not df.empty:
+        df.sort_values(["env", "band", "video_id"], inplace=True)
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_csv, index=False)
     return df
